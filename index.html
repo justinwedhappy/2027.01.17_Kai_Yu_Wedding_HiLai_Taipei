@@ -248,10 +248,17 @@
   .ask-add button{border:1px solid var(--wine); background:var(--wine); color:#fff; border-radius:6px; padding:4px 12px; font-size:.82rem; cursor:pointer; white-space:nowrap;}
   .ask-newgroup{margin-top:14px; padding-top:12px; border-top:1px dashed var(--line);}
   .ask-newgroup .ask-add input:first-child{flex:0 0 120px;}
+  .ask-date{font:inherit; font-size:.78rem; padding:2px 4px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--charcoal-soft); width:128px; flex:none;}
+  .ask-date.overdue{border-color:var(--xi-red); color:var(--xi-red); background:#FBE2E2;}
+  .ask-card li{flex-wrap:wrap;}
+  .ask-card li label{flex:1 1 100%;}
+  .ask-card li .ask-date{margin-left:24px;}
+  .ask-card li .ask-del{margin-left:auto;}
+  .ask-add .ask-date{flex:0 0 128px;}
   .ask-tag.editable{cursor:pointer;}
   .ask-msg{font-size:.85rem; color:var(--xi-red); margin:6px 0;}
   @media print{ .ask-add,.ask-del,.ask-newgroup{display:none;} }
-  @media (max-width:480px){ .ask-grid{grid-template-columns:1fr;} .ask-newgroup .ask-add{flex-wrap:wrap;} .ask-newgroup .ask-add input:first-child{flex:1 1 100%;} }
+  @media (max-width:480px){ .ask-grid{grid-template-columns:1fr;} .ask-newgroup .ask-add{flex-wrap:wrap;} .ask-newgroup .ask-add input:first-child{flex:1 1 100%;} .ask-add{flex-wrap:wrap;} .ask-add input[type=text]{flex:1 1 100%;} .ask-add .ask-date{flex:1 1 130px; width:auto; min-width:0;} .ask-add button{flex:0 0 auto;} }
   @media print{ .ask-board{box-shadow:none;} }
   @media print{
     header, .tabnav-shell, .sync-bar, .section-head p, .itin-export-row,
@@ -678,7 +685,9 @@
   }, 20000);
 
   // ---------- 待詢問清單（同步到 Google 試算表的 Asks 分頁）----------
-  function normalizeAskRow(r){ return {id:toStr(r.id), group:toStr(r.group), question:toStr(r.question), done:toBool(r.done), order:toNum(r.order)}; }
+  function normalizeAskRow(r){ var d = toStr(r.date).slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) d = ''; return {id:toStr(r.id), group:toStr(r.group), question:toStr(r.question), done:toBool(r.done), order:toNum(r.order), date:d}; }
+  function askToday(){ var t = new Date(); return t.getFullYear()+'-'+('0'+(t.getMonth()+1)).slice(-2)+'-'+('0'+t.getDate()).slice(-2); }
+  function askDateKey(d){ return d || '9999-99-99'; }
   function askEl(tag, cls, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; return e; }
   function askMaxOrder(){ return state.Asks.reduce(function(m,r){ return Math.max(m, r.order); }, 0); }
   function renderAsks(){
@@ -687,15 +696,17 @@
     board.innerHTML = '';
     var title = askEl('div','ask-title');
     title.appendChild(askEl('h3','','📌 待詢問清單'));
-    title.appendChild(askEl('span','','依廠商分開，問到就勾選；點文字可修改，也能自己新增'));
+    title.appendChild(askEl('span','','依日期由近到遠排列；問到就勾選，點文字可修改，也能自己新增'));
     board.appendChild(title);
     if(state.Asks === null){
       board.appendChild(askEl('p','ask-msg','尚未讀到待詢問清單。請先把最新的 Apps Script 程式貼上並重新部署，第一次載入時會自動建立「Asks」分頁。'));
       return;
     }
-    var rows = state.Asks.slice().sort(function(a,b){ return a.order - b.order; });
+    var rows = state.Asks.slice().sort(function(a,b){ return askDateKey(a.date) < askDateKey(b.date) ? -1 : askDateKey(a.date) > askDateKey(b.date) ? 1 : a.order - b.order; });
     var groups = [], map = {};
     rows.forEach(function(r){ if(!map[r.group]){ map[r.group] = []; groups.push(r.group); } map[r.group].push(r); });
+    // 卡片依最早日期排序（沒有日期的排最後）
+    groups.sort(function(a,b){ var x = askDateKey(map[a][0].date), y = askDateKey(map[b][0].date); return x < y ? -1 : x > y ? 1 : 0; });
     var grid = askEl('div','ask-grid');
     groups.forEach(function(g){
       var items = map[g], doneN = items.filter(function(i){ return i.done; }).length;
@@ -746,28 +757,36 @@
           inp.addEventListener('blur', save);
         });
         lab.appendChild(cb); lab.appendChild(sp);
+        var dt = document.createElement('input'); dt.type = 'date'; dt.className = 'ask-date'; dt.value = it.date; dt.title = '預計詢問日期';
+        if(it.date && !it.done && it.date < askToday()) dt.classList.add('overdue');
+        dt.addEventListener('change', function(){
+          it.date = dt.value;
+          postAction({action:'update', sheet:'Asks', id:it.id, fields:{date: it.date}});
+          renderAsks();
+        });
         var del = askEl('button','ask-del','×'); del.type = 'button'; del.title = '刪除這題'; del.setAttribute('aria-label','刪除這題');
         del.addEventListener('click', function(){
           state.Asks = state.Asks.filter(function(r){ return r.id !== it.id; });
           postAction({action:'delete', sheet:'Asks', id:it.id});
           renderAsks();
         });
-        li.appendChild(lab); li.appendChild(del); ul.appendChild(li);
+        li.appendChild(lab); li.appendChild(dt); li.appendChild(del); ul.appendChild(li);
       });
       card.appendChild(ul);
       var add = askEl('div','ask-add');
       var ai = askEl('input'); ai.type = 'text'; ai.placeholder = '新增一個要問的問題…';
+      var ad = document.createElement('input'); ad.type = 'date'; ad.className = 'ask-date'; ad.title = '預計詢問日期';
       var ab = askEl('button','','新增'); ab.type = 'button';
       function addQ(){
         var v = ai.value.trim(); if(!v) return;
-        var row = {id:newId('a'), group:g, question:v, done:false, order:askMaxOrder()+1};
+        var row = {id:newId('a'), group:g, question:v, done:false, order:askMaxOrder()+1, date:ad.value};
         state.Asks.push(row);
-        postAction({action:'add', sheet:'Asks', fields:{id:row.id, group:row.group, question:row.question, done:'FALSE', order:row.order}});
+        postAction({action:'add', sheet:'Asks', fields:{id:row.id, group:row.group, question:row.question, done:'FALSE', order:row.order, date:row.date}});
         renderAsks();
       }
       ab.addEventListener('click', addQ);
       ai.addEventListener('keydown', function(e){ if(e.key === 'Enter') addQ(); });
-      add.appendChild(ai); add.appendChild(ab); card.appendChild(add);
+      add.appendChild(ai); add.appendChild(ad); add.appendChild(ab); card.appendChild(add);
       grid.appendChild(card);
     });
     board.appendChild(grid);
@@ -776,17 +795,18 @@
     var row = askEl('div','ask-add');
     var gi = askEl('input'); gi.type = 'text'; gi.placeholder = '對象名稱';
     var qi = askEl('input'); qi.type = 'text'; qi.placeholder = '第一個問題';
+    var gd = document.createElement('input'); gd.type = 'date'; gd.className = 'ask-date'; gd.title = '預計詢問日期';
     var nb = askEl('button','','新增對象'); nb.type = 'button';
     function addG(){
       var gv = gi.value.trim(), qv = qi.value.trim(); if(!gv || !qv) return;
-      var r = {id:newId('a'), group:gv, question:qv, done:false, order:askMaxOrder()+1};
+      var r = {id:newId('a'), group:gv, question:qv, done:false, order:askMaxOrder()+1, date:gd.value};
       state.Asks.push(r);
-      postAction({action:'add', sheet:'Asks', fields:{id:r.id, group:r.group, question:r.question, done:'FALSE', order:r.order}});
+      postAction({action:'add', sheet:'Asks', fields:{id:r.id, group:r.group, question:r.question, done:'FALSE', order:r.order, date:r.date}});
       renderAsks();
     }
     nb.addEventListener('click', addG);
     qi.addEventListener('keydown', function(e){ if(e.key === 'Enter') addG(); });
-    row.appendChild(gi); row.appendChild(qi); row.appendChild(nb); ng.appendChild(row);
+    row.appendChild(gi); row.appendChild(qi); row.appendChild(gd); row.appendChild(nb); ng.appendChild(row);
     board.appendChild(ng);
     board.appendChild(askEl('p','ask-note','＊新增、修改、勾選都會即時同步到 Google 試算表的「Asks」分頁，新人與顧問看到的是同一份。'));
   }
