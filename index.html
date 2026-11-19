@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -220,6 +219,40 @@
   .itin-export-updated{font-size:.76rem; color:var(--charcoal-soft);}
 
   .print-only{display:none;}
+  /* 待詢問清單 */
+  .ask-board{background:#fff; border:1.5px solid var(--gold); border-radius:12px; padding:18px 18px 12px; margin:0 0 26px; box-shadow:0 4px 14px rgba(70,119,159,.08);}
+  .ask-title{display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; margin-bottom:12px;}
+  .ask-title h3{margin:0; font-size:1.15rem; color:var(--navy);}
+  .ask-title span{font-size:.85rem; color:var(--xi-red); font-weight:600;}
+  .ask-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px;}
+  .ask-card{background:var(--ivory); border:1px solid var(--line); border-radius:10px; padding:12px 14px;}
+  .ask-head{display:flex; align-items:center; gap:8px; margin-bottom:6px;}
+  .ask-head h4{margin:0; font-size:.95rem; color:var(--charcoal); flex:1;}
+  .ask-tag{background:var(--wine); color:#fff; font-size:.78rem; padding:2px 10px; border-radius:99px; white-space:nowrap;}
+  .ask-count{font-size:.78rem; color:var(--charcoal-soft);}
+  .ask-card ul{list-style:none; margin:0; padding:0;}
+  .ask-card li{margin:5px 0;}
+  .ask-card label{display:flex; gap:8px; font-size:.88rem; line-height:1.5; color:var(--charcoal); cursor:pointer;}
+  .ask-card input{margin-top:4px; accent-color:var(--wine); flex:none;}
+  .ask-card li.done span{color:var(--done); text-decoration:line-through;}
+  .ask-card.all-done{border-color:var(--gold); background:#FBF6EA;}
+  .ask-note{font-size:.78rem; color:var(--charcoal-soft); margin:12px 0 4px;}
+  .ask-card li{display:flex; align-items:flex-start; gap:4px;}
+  .ask-card li label{flex:1; min-width:0;}
+  .ask-card li .ask-text{cursor:text;}
+  .ask-edit{flex:1; min-width:0; font:inherit; font-size:.88rem; padding:3px 6px; border:1px solid var(--wine); border-radius:6px; background:#fff;}
+  .ask-del{border:none; background:none; color:var(--done); font-size:1rem; line-height:1; cursor:pointer; padding:2px 4px;}
+  .ask-del:hover{color:var(--xi-red);}
+  .ask-add{display:flex; gap:6px; margin-top:8px;}
+  .ask-add input{flex:1; min-width:0; font:inherit; font-size:.85rem; padding:5px 8px; border:1px dashed var(--line); border-radius:6px; background:#fff;}
+  .ask-add button{border:1px solid var(--wine); background:var(--wine); color:#fff; border-radius:6px; padding:4px 12px; font-size:.82rem; cursor:pointer; white-space:nowrap;}
+  .ask-newgroup{margin-top:14px; padding-top:12px; border-top:1px dashed var(--line);}
+  .ask-newgroup .ask-add input:first-child{flex:0 0 120px;}
+  .ask-tag.editable{cursor:pointer;}
+  .ask-msg{font-size:.85rem; color:var(--xi-red); margin:6px 0;}
+  @media print{ .ask-add,.ask-del,.ask-newgroup{display:none;} }
+  @media (max-width:480px){ .ask-grid{grid-template-columns:1fr;} .ask-newgroup .ask-add{flex-wrap:wrap;} .ask-newgroup .ask-add input:first-child{flex:1 1 100%;} }
+  @media print{ .ask-board{box-shadow:none;} }
   @media print{
     header, .tabnav-shell, .sync-bar, .section-head p, .itin-export-row,
     .props-checklist, .add-itin-row, .save-note, footer, .itin-del,
@@ -404,6 +437,7 @@
       <span><span class="legend-dot" style="background:#FBF0D2;"></span>14 天內到期</span>
       <span><span class="legend-dot" style="background:#EAF0F5;"></span>已完成</span>
     </div>
+    <div class="ask-board" id="askBoard"><div class="ask-title"><h3>📌 待詢問清單</h3><span>讀取中…</span></div></div>
     <div id="checklistContainer"></div>
     <p class="save-note">＊勾選與編輯內容會即時同步到 Google 試算表，新人與顧問在各自裝置上打開都會看到同一份進度（約每 20 秒自動更新，也可以手動點「重新整理」）。</p>
   </section>
@@ -555,7 +589,7 @@
   var syncBarEl = document.querySelector('.sync-bar');
   var refreshBtn = document.getElementById('refreshBtn');
 
-  var state = { Checklist: [], Itinerary: [], Vendors: [], Payments: [], Props: [] };
+  var state = { Checklist: [], Itinerary: [], Vendors: [], Payments: [], Props: [], Asks: null };
   var isConfigured = APPS_SCRIPT_URL && APPS_SCRIPT_URL.indexOf('PASTE_YOUR') !== 0;
 
   function setSyncStatus(text, isError){
@@ -601,6 +635,8 @@
       state.Vendors = (data.Vendors || []).map(normalizeVendorRow);
       state.Payments = (data.Payments || []).map(normalizePaymentRow);
       state.Props = (data.Props || []).map(normalizePropRow);
+      state.Asks = data.Asks ? data.Asks.map(normalizeAskRow) : null;
+      renderAsks();
       renderChecklist();
       renderItin();
       renderPropsChecklist();
@@ -640,6 +676,120 @@
     var typing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
     if(!typing) loadAll(true);
   }, 20000);
+
+  // ---------- 待詢問清單（同步到 Google 試算表的 Asks 分頁）----------
+  function normalizeAskRow(r){ return {id:toStr(r.id), group:toStr(r.group), question:toStr(r.question), done:toBool(r.done), order:toNum(r.order)}; }
+  function askEl(tag, cls, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; return e; }
+  function askMaxOrder(){ return state.Asks.reduce(function(m,r){ return Math.max(m, r.order); }, 0); }
+  function renderAsks(){
+    var board = document.getElementById('askBoard');
+    if(!board) return;
+    board.innerHTML = '';
+    var title = askEl('div','ask-title');
+    title.appendChild(askEl('h3','','📌 待詢問清單'));
+    title.appendChild(askEl('span','','依廠商分開，問到就勾選；點文字可修改，也能自己新增'));
+    board.appendChild(title);
+    if(state.Asks === null){
+      board.appendChild(askEl('p','ask-msg','尚未讀到待詢問清單。請先把最新的 Apps Script 程式貼上並重新部署，第一次載入時會自動建立「Asks」分頁。'));
+      return;
+    }
+    var rows = state.Asks.slice().sort(function(a,b){ return a.order - b.order; });
+    var groups = [], map = {};
+    rows.forEach(function(r){ if(!map[r.group]){ map[r.group] = []; groups.push(r.group); } map[r.group].push(r); });
+    var grid = askEl('div','ask-grid');
+    groups.forEach(function(g){
+      var items = map[g], doneN = items.filter(function(i){ return i.done; }).length;
+      var card = askEl('div','ask-card' + (doneN === items.length ? ' all-done' : ''));
+      var head = askEl('div','ask-head');
+      var tag = askEl('span','ask-tag editable', g); tag.title = '點一下可改名稱';
+      tag.addEventListener('click', function(){
+        var inp = askEl('input','ask-edit'); inp.value = g; inp.style.maxWidth = '140px';
+        tag.replaceWith(inp); inp.focus(); inp.select();
+        var finished = false;
+        function done(){
+          if(finished) return; finished = true;
+          var v = inp.value.trim();
+          if(v && v !== g){
+            items.forEach(function(it){ it.group = v; postAction({action:'update', sheet:'Asks', id:it.id, fields:{group:v}}); });
+          }
+          renderAsks();
+        }
+        inp.addEventListener('keydown', function(e){ if(e.key === 'Enter') done(); if(e.key === 'Escape'){ inp.value = g; done(); } });
+        inp.addEventListener('blur', done);
+      });
+      head.appendChild(tag);
+      head.appendChild(askEl('span','ask-count', doneN + ' / ' + items.length));
+      card.appendChild(head);
+      var ul = askEl('ul');
+      items.forEach(function(it){
+        var li = askEl('li', it.done ? 'done' : '');
+        var lab = askEl('label');
+        var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = it.done;
+        cb.addEventListener('change', function(){
+          it.done = cb.checked;
+          postAction({action:'update', sheet:'Asks', id:it.id, fields:{done: it.done ? 'TRUE' : 'FALSE'}});
+          renderAsks();
+        });
+        var sp = askEl('span','ask-text', it.question);
+        sp.addEventListener('click', function(e){
+          e.preventDefault();
+          var inp = askEl('input','ask-edit'); inp.value = it.question;
+          lab.replaceWith(inp); inp.focus();
+          var finished = false;
+          function save(){
+            if(finished) return; finished = true;
+            var v = inp.value.trim();
+            if(v && v !== it.question){ it.question = v; postAction({action:'update', sheet:'Asks', id:it.id, fields:{question:v}}); }
+            renderAsks();
+          }
+          inp.addEventListener('keydown', function(ev){ if(ev.key === 'Enter') save(); if(ev.key === 'Escape'){ inp.value = it.question; save(); } });
+          inp.addEventListener('blur', save);
+        });
+        lab.appendChild(cb); lab.appendChild(sp);
+        var del = askEl('button','ask-del','×'); del.type = 'button'; del.title = '刪除這題'; del.setAttribute('aria-label','刪除這題');
+        del.addEventListener('click', function(){
+          state.Asks = state.Asks.filter(function(r){ return r.id !== it.id; });
+          postAction({action:'delete', sheet:'Asks', id:it.id});
+          renderAsks();
+        });
+        li.appendChild(lab); li.appendChild(del); ul.appendChild(li);
+      });
+      card.appendChild(ul);
+      var add = askEl('div','ask-add');
+      var ai = askEl('input'); ai.type = 'text'; ai.placeholder = '新增一個要問的問題…';
+      var ab = askEl('button','','新增'); ab.type = 'button';
+      function addQ(){
+        var v = ai.value.trim(); if(!v) return;
+        var row = {id:newId('a'), group:g, question:v, done:false, order:askMaxOrder()+1};
+        state.Asks.push(row);
+        postAction({action:'add', sheet:'Asks', fields:{id:row.id, group:row.group, question:row.question, done:'FALSE', order:row.order}});
+        renderAsks();
+      }
+      ab.addEventListener('click', addQ);
+      ai.addEventListener('keydown', function(e){ if(e.key === 'Enter') addQ(); });
+      add.appendChild(ai); add.appendChild(ab); card.appendChild(add);
+      grid.appendChild(card);
+    });
+    board.appendChild(grid);
+    var ng = askEl('div','ask-newgroup');
+    ng.appendChild(askEl('div','ask-count','＋ 新增要詢問的對象（例如：喜餅廠商、主持人）'));
+    var row = askEl('div','ask-add');
+    var gi = askEl('input'); gi.type = 'text'; gi.placeholder = '對象名稱';
+    var qi = askEl('input'); qi.type = 'text'; qi.placeholder = '第一個問題';
+    var nb = askEl('button','','新增對象'); nb.type = 'button';
+    function addG(){
+      var gv = gi.value.trim(), qv = qi.value.trim(); if(!gv || !qv) return;
+      var r = {id:newId('a'), group:gv, question:qv, done:false, order:askMaxOrder()+1};
+      state.Asks.push(r);
+      postAction({action:'add', sheet:'Asks', fields:{id:r.id, group:r.group, question:r.question, done:'FALSE', order:r.order}});
+      renderAsks();
+    }
+    nb.addEventListener('click', addG);
+    qi.addEventListener('keydown', function(e){ if(e.key === 'Enter') addG(); });
+    row.appendChild(gi); row.appendChild(qi); row.appendChild(nb); ng.appendChild(row);
+    board.appendChild(ng);
+    board.appendChild(askEl('p','ask-note','＊新增、修改、勾選都會即時同步到 Google 試算表的「Asks」分頁，新人與顧問看到的是同一份。'));
+  }
 
   function normalizeChecklistRow(r){
     return {id:toStr(r.id), phase:toStr(r.phase), category:toStr(r.category), text:toStr(r.text), done:toBool(r.done), desc:toStr(r.desc), ref_link:toStr(r.ref_link), file_link:toStr(r.file_link), order:toNum(r.order)};
@@ -1329,6 +1479,7 @@
 
   loadAll(false);
 })();
+
 </script>
 
 </body>
