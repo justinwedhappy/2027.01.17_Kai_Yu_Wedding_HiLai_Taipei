@@ -269,7 +269,12 @@
     .itin-cell{white-space:pre-wrap;}
     table.itin-table th{background:#D6E8F6 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;}
     body{background:#fff;}
+    /* 隱藏瀏覽器預設的頁首頁尾（會印出網址），改用自訂頁尾 */
+    @page{size:A4; margin:0;}
+    #panel-itinerary{padding:12mm 10mm 18mm !important; box-decoration-break:clone; -webkit-box-decoration-break:clone;}
+    .print-brand{display:block !important; position:fixed; left:0; right:0; bottom:6mm; text-align:center; font-size:.8rem; color:#6b7c8d; letter-spacing:.08em;}
   }
+  .print-brand{display:none;}
 
   .itin-table-wrap{border:1.5px solid var(--line); background:var(--white); overflow-x:auto;}
   table.itin-table{width:100%; border-collapse:collapse; table-layout:fixed;}
@@ -456,6 +461,7 @@
       <p>台北漢來大飯店・晚宴，以下為草案流程，可直接點擊修改時間、流程、音樂、投影幕、道具與備註，實際時間將依現場狀況於婚禮前確認定案。</p>
     </div>
 
+    <div class="print-brand">Just.in Wedding 佳時婚禮顧問工作室</div>
     <div class="print-only" id="printHeader">
       <h2 style="margin-bottom:6px;">2027/01/17 王行凱 &amp; 葉品妤 婚禮當天流程</h2>
       <p style="font-size:.85rem; color:#555; margin-bottom:16px;">台北漢來大飯店・晚宴　|　資料更新時間：<span id="printUpdatedTime"></span></p>
@@ -1165,6 +1171,13 @@
   }
 
   // ---------- 匯出 Excel / PDF ----------
+  // 下載檔名（Excel／另存 PDF 共用）：2027_01_17 王行凱 & 葉品妤_台北漢來晚宴_鉑金A廳_MMDD（MMDD 為下載當天）
+  function exportName(){
+    var d = new Date();
+    var mmdd = ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2);
+    return '2027_01_17 王行凱 & 葉品妤_台北漢來晚宴_鉑金A廳_' + mmdd;
+  }
+
   function exportItinExcel(){
     if(typeof XLSX === 'undefined'){
       alert('匯出功能載入失敗，請檢查網路連線後重新整理頁面再試一次。');
@@ -1182,10 +1195,13 @@
     ws['!cols'] = [{wch:8},{wch:8},{wch:14},{wch:26},{wch:20},{wch:20},{wch:18},{wch:26}];
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '婚禮流程');
-    XLSX.writeFile(wb, '0117婚禮流程_' + (lastSyncTime || '').replace(/[\/: ]/g,'') + '.xlsx');
+    XLSX.writeFile(wb, exportName() + '.xlsx');
   }
 
   function exportItinPdf(){
+    var oldTitle = document.title;
+    document.title = exportName();
+    window.addEventListener('afterprint', function restore(){ document.title = oldTitle; window.removeEventListener('afterprint', restore); });
     window.print();
   }
 
